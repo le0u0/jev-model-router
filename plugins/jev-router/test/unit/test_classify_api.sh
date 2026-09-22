@@ -98,4 +98,12 @@ export MOCK_CURL_RESPONSE='{"answers":{"tier":{"choice":"lightweight","confidenc
 OUT="$("$CLASSIFY" --agent claude-code --description "anything" --config "$ENABLED_CONFIG" --cwd "$TIGHT_DIR")"
 [[ "$(echo "$OUT" | jq -r '.reason')" == "high-stakes" ]] || fail "override must be able to lower high_stakes threshold, got $OUT"
 
+# 10. High-stakes forcing runs before tier-enum validation: an unrecognized
+#     tier string paired with a high noul must still force advanced, not
+#     fall through to the unrecognized-tier fallback (standard).
+export MOCK_CURL_RESPONSE='{"answers":{"tier":{"choice":"medium","confidence":0.95},"high_stakes":{"noul":0.9}}}'
+OUT="$("$CLASSIFY" --agent claude-code --description "anything" --config "$ENABLED_CONFIG" --cwd "$TMP")"
+[[ "$(echo "$OUT" | jq -r '.tier')" == "advanced" ]] || fail "unrecognized tier + high noul must still force advanced, got $OUT"
+[[ "$(echo "$OUT" | jq -r '.reason')" == "high-stakes" ]] || fail "expected reason=high-stakes, got $OUT"
+
 echo "PASS test_classify_api.sh"

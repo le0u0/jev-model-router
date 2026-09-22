@@ -189,20 +189,25 @@ RESPONSE="$(curl -sS -X POST "$ENDPOINT" \
 echo "$RESPONSE" | jq -e '.answers.tier.choice' >/dev/null 2>&1 || fallback_standard "api-unavailable"
 
 TIER="$(echo "$RESPONSE" | jq -r '.answers.tier.choice')"
-case "$TIER" in
-  lightweight|standard|advanced) ;;
-  *) fallback_standard "api-unavailable" ;;
-esac
 
 # Non-numeric probabilities degrade to 0 rather than crashing --argjson.
 CONFIDENCE="$(echo "$RESPONSE" | jq -r '(.answers.tier.confidence // 0) | if type == "number" then . else 0 end')"
 HS_PROB="$(echo "$RESPONSE" | jq -r '(.answers.high_stakes.noul // 0) | if type == "number" then . else 0 end')"
 
+# High-stakes forcing runs before tier validation: a response with an
+# unrecognized tier string must still be forced to advanced if noul is
+# high, rather than falling through to the "unrecognized tier" fallback
+# and landing on standard for a genuinely high-stakes task.
 if awk -v p="$HS_PROB" -v t="$HS_THRESHOLD" 'BEGIN{exit !(p>=t)}'; then
   MODEL="$(resolve_model advanced)"
   jq -nc --arg model "$MODEL" --argjson confidence "$CONFIDENCE" '{routed: true, tier: "advanced", confidence: $confidence, model: $model, reason: "high-stakes"}'
   exit 0
 fi
+
+case "$TIER" in
+  lightweight|standard|advanced) ;;
+  *) fallback_standard "api-unavailable" ;;
+esac
 
 if awk -v c="$CONFIDENCE" -v t="$CONF_THRESHOLD" 'BEGIN{exit !(c<t)}'; then
   fallback_standard "low-confidence"
