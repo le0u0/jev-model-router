@@ -1,0 +1,14 @@
+{
+  "name": "jev-model-router",
+  "description": "Jev-powered model routing for delegated coding tasks, shared by Claude Code and Codex CLI.",
+  "owner": {
+    "name": "le0u0"
+  },
+  "plugins": [
+    {
+      "name": "jev-router",
+      "source": "./plugins/jev-router",
+      "description": "Classifies a delegated task and picks the right-sized model for the agent dispatching it, using TypeSafe's Jev model."
+    }
+  ]
+}
