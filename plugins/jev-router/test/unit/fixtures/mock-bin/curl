@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# When MOCK_CURL_ARGS_FILE is set, record the argv we were invoked with so a
+# test can assert on the endpoint / headers classify.sh actually used.
+if [[ -n "${MOCK_CURL_ARGS_FILE:-}" ]]; then
+  printf '%s\n' "$@" > "$MOCK_CURL_ARGS_FILE"
+fi
 if [[ -n "${MOCK_CURL_EXIT:-}" ]]; then
   exit "$MOCK_CURL_EXIT"
 fi

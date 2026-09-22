@@ -63,17 +63,25 @@ find_override() {
 }
 
 EFFECTIVE_CONFIG="$(cat "$CONFIG_PATH")"
-# A project override may relax non-safety settings, but the safety floor
-# (high-stakes keywords and the two thresholds) can only ever be tightened:
-# keywords are unioned, high_stakes_probability_threshold can only move down
-# (more sensitive) and confidence_threshold can only move up (more sensitive).
+# A project override is NOT deep-merged: it may only affect an explicit
+# allowlist of four top-level keys, and every other key (typesafe.*,
+# agents.*, anything unknown) comes from the global config regardless of
+# what the override contains. Unknown keys in the override are ignored.
+# Of the four, three can only ever tighten the safety floor: keywords are
+# unioned, high_stakes_probability_threshold can only move down (more
+# sensitive) and confidence_threshold can only move up (more sensitive).
 if OVERRIDE_PATH="$(find_override "$CWD")" && jq -e 'type == "object"' "$OVERRIDE_PATH" >/dev/null 2>&1; then
   EFFECTIVE_CONFIG="$(jq -s '
     .[0] as $g | .[1] as $o
-    | ($g * $o)
+    | $g
+    | .enabled = (
+        if ($o.enabled | type) == "boolean" then $o.enabled else $g.enabled end
+      )
     | .high_stakes_keywords = (
         ($g.high_stakes_keywords // [])
-        + (if ($o.high_stakes_keywords | type) == "array" then $o.high_stakes_keywords else [] end)
+        + (if ($o.high_stakes_keywords | type) == "array"
+           then ($o.high_stakes_keywords | map(select(type == "string")))
+           else [] end)
         | unique
       )
     | .high_stakes_probability_threshold = (

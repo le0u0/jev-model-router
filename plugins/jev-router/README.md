@@ -24,20 +24,33 @@ Edit `config/config.json`:
 
 ## Per-project override
 
-Drop a `.jev-router.json` at a project's root to override any of the above
-for that project only, e.g. to opt a legacy repo out entirely:
+Drop a `.jev-router.json` at a project's root to adjust routing for that
+project only, e.g. to opt a legacy repo out entirely:
 ```json
 { "enabled": false }
 ```
-`classify.sh` walks up from the current directory looking for this file
-and merges it over the global config — no plugin changes needed. An invalid
-JSON override is ignored rather than fatal.
+`classify.sh` walks up from the current directory looking for this file —
+no plugin changes needed. An invalid JSON override (or one that isn't a
+JSON object) is ignored rather than fatal.
 
-The safety floor is not overridable downwards: `high_stakes_keywords` from
-an override are *added* to the global list (never replace or shrink it),
-`high_stakes_probability_threshold` can only be lowered (made more
-sensitive) and `confidence_threshold` can only be raised. A project can
-make routing more conservative, never less.
+The override is **not** merged over the global config. It is an allowlist:
+exactly four top-level keys have any effect, and each may only move routing
+in the conservative direction.
+
+| Key | Effect |
+| --- | --- |
+| `enabled` (boolean) | A project may switch routing off entirely. |
+| `high_stakes_keywords` (array of strings) | *Added* to the global list — never replaces or shrinks it. |
+| `high_stakes_probability_threshold` (number) | May only be lowered (made more sensitive) than the global value. |
+| `confidence_threshold` (number) | May only be raised (made more sensitive) than the global value. |
+
+Everything else is fixed by the global `config/config.json` regardless of
+what a project override contains. In particular `agents.*` (the model slug
+per tier) and `typesafe.*` (`endpoint`, `model`, `api_key_env`) are **not**
+project-overridable, so a project cannot downgrade the model a high-stakes
+task resolves to, nor redirect the API call and its credential elsewhere.
+Any other key in an override — and a value of the wrong type for one of
+the four above — is silently ignored.
 
 ## Turning it on/off
 
