@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+if [[ -n "${MOCK_CURL_EXIT:-}" ]]; then
+  exit "$MOCK_CURL_EXIT"
+fi
+printf '%s' "$MOCK_CURL_RESPONSE"

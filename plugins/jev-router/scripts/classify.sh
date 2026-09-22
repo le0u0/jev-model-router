@@ -91,6 +91,82 @@ if [[ "$GUARD_HIT" == true ]]; then
   exit 0
 fi
 
-# TypeSafe call added in Task 4.
-echo '{"routed": false, "reason": "not-implemented"}' >&2
-exit 3
+API_KEY_ENV="$(cfg '.typesafe.api_key_env')"
+API_KEY="${!API_KEY_ENV:-}"
+ENDPOINT="$(cfg '.typesafe.endpoint')"
+JEV_MODEL="$(cfg '.typesafe.model')"
+CONF_THRESHOLD="$(cfg '.confidence_threshold')"
+HS_THRESHOLD="$(cfg '.high_stakes_probability_threshold')"
+
+fallback_standard() {
+  local reason="$1"
+  local model
+  model="$(resolve_model standard)"
+  jq -n --arg model "$model" --arg reason "$reason" '{routed: true, tier: "standard", confidence: 0, model: $model, reason: $reason}'
+  exit 0
+}
+
+[[ -z "$API_KEY" ]] && fallback_standard "api-unavailable"
+
+REQUEST_BODY=$(jq -n \
+  --arg description "$DESCRIPTION" \
+  --arg expected "$EXPECTED_OUTPUT" \
+  --arg scope "$SCOPE" \
+  --arg risk "$RISK" \
+  --argjson deep_reasoning "$DEEP_REASONING" \
+  --argjson browsing "$BROWSING" \
+  --argjson vision "$VISION" \
+  --argjson tool_use "$TOOL_USE" \
+  --arg model "$JEV_MODEL" \
+  '{
+    state: {
+      task_description: $description,
+      expected_output: $expected,
+      scope: $scope,
+      risk: $risk,
+      requires_deep_reasoning: $deep_reasoning,
+      requires_browsing: $browsing,
+      requires_vision: $vision,
+      requires_tool_use: $tool_use
+    },
+    model: $model,
+    questions: {
+      tier: {
+        type: "choice",
+        instructions: "Classify how much capability this coding task needs.",
+        criteria: {
+          lightweight: "Lookups, file discovery, formatting, and mechanical edits.",
+          standard: "Normal implementation, debugging, testing, and documentation.",
+          advanced: "Architecture, security-sensitive work, ambiguous bugs, migrations, destructive operations, and complex reasoning."
+        }
+      },
+      high_stakes: {
+        type: "noul",
+        instructions: "Is this task security-sensitive, destructive, a production deployment, or otherwise high-stakes?"
+      }
+    }
+  }')
+
+RESPONSE="$(curl -sS -X POST "$ENDPOINT" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$REQUEST_BODY")" || fallback_standard "api-unavailable"
+
+echo "$RESPONSE" | jq -e '.answers.tier.choice' >/dev/null 2>&1 || fallback_standard "api-unavailable"
+
+TIER="$(echo "$RESPONSE" | jq -r '.answers.tier.choice')"
+CONFIDENCE="$(echo "$RESPONSE" | jq -r '.answers.tier.confidence // 0')"
+HS_PROB="$(echo "$RESPONSE" | jq -r '.answers.high_stakes.noul // 0')"
+
+if awk -v p="$HS_PROB" -v t="$HS_THRESHOLD" 'BEGIN{exit !(p>=t)}'; then
+  MODEL="$(resolve_model advanced)"
+  jq -n --arg model "$MODEL" --argjson confidence "$CONFIDENCE" '{routed: true, tier: "advanced", confidence: $confidence, model: $model, reason: "high-stakes"}'
+  exit 0
+fi
+
+if awk -v c="$CONFIDENCE" -v t="$CONF_THRESHOLD" 'BEGIN{exit !(c<t)}'; then
+  fallback_standard "low-confidence"
+fi
+
+MODEL="$(resolve_model "$TIER")"
+jq -n --arg model "$MODEL" --arg tier "$TIER" --argjson confidence "$CONFIDENCE" '{routed: true, tier: $tier, confidence: $confidence, model: $model, reason: "jev"}'
