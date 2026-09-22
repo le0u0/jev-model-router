@@ -44,9 +44,15 @@ done
 [[ "$AGENT" != "claude-code" && "$AGENT" != "codex" ]] && { echo "Unknown --agent: $AGENT (expected claude-code or codex)" >&2; exit 2; }
 [[ -f "$CONFIG_PATH" ]] || { echo "Config not found: $CONFIG_PATH" >&2; exit 2; }
 
+# Resolve --cwd to an absolute path so the upward override search terminates.
+CWD_ABS="$(cd "$CWD" 2>/dev/null && pwd || true)"
+if [[ -n "$CWD_ABS" ]]; then
+  CWD="$CWD_ABS"
+fi
+
 find_override() {
   local dir="$1"
-  while [[ "$dir" != "/" ]]; do
+  while [[ -n "$dir" && "$dir" != "/" ]]; do
     if [[ -f "$dir/.jev-router.json" ]]; then
       echo "$dir/.jev-router.json"
       return 0
@@ -57,15 +63,37 @@ find_override() {
 }
 
 EFFECTIVE_CONFIG="$(cat "$CONFIG_PATH")"
-if OVERRIDE_PATH="$(find_override "$CWD")"; then
-  EFFECTIVE_CONFIG="$(jq -s '.[0] * .[1]' "$CONFIG_PATH" "$OVERRIDE_PATH")"
+# A project override may relax non-safety settings, but the safety floor
+# (high-stakes keywords and the two thresholds) can only ever be tightened:
+# keywords are unioned, high_stakes_probability_threshold can only move down
+# (more sensitive) and confidence_threshold can only move up (more sensitive).
+if OVERRIDE_PATH="$(find_override "$CWD")" && jq -e 'type == "object"' "$OVERRIDE_PATH" >/dev/null 2>&1; then
+  EFFECTIVE_CONFIG="$(jq -s '
+    .[0] as $g | .[1] as $o
+    | ($g * $o)
+    | .high_stakes_keywords = (
+        ($g.high_stakes_keywords // [])
+        + (if ($o.high_stakes_keywords | type) == "array" then $o.high_stakes_keywords else [] end)
+        | unique
+      )
+    | .high_stakes_probability_threshold = (
+        if ($o.high_stakes_probability_threshold | type) == "number"
+        then [$g.high_stakes_probability_threshold, $o.high_stakes_probability_threshold] | min
+        else $g.high_stakes_probability_threshold end
+      )
+    | .confidence_threshold = (
+        if ($o.confidence_threshold | type) == "number"
+        then [$g.confidence_threshold, $o.confidence_threshold] | max
+        else $g.confidence_threshold end
+      )
+  ' "$CONFIG_PATH" "$OVERRIDE_PATH")"
 fi
 
 cfg() { echo "$EFFECTIVE_CONFIG" | jq -r "$1"; }
 
 ENABLED="$(cfg '.enabled')"
 if [[ "$ENABLED" != "true" ]]; then
-  jq -n '{routed: false, reason: "disabled"}'
+  jq -nc '{routed: false, reason: "disabled"}'
   exit 0
 fi
 
@@ -74,12 +102,23 @@ resolve_model() {
   echo "$EFFECTIVE_CONFIG" | jq -r --arg agent "$AGENT" --arg tier "$tier" '.agents[$agent][$tier]'
 }
 
-HAYSTACK="$(printf '%s %s' "$DESCRIPTION" "$SCOPE" | tr '[:upper:]' '[:lower:]')"
+fallback_standard() {
+  local reason="$1"
+  local model
+  model="$(resolve_model standard)"
+  jq -nc --arg model "$model" --arg reason "$reason" '{routed: true, tier: "standard", confidence: 0, model: $model, reason: $reason}'
+  exit 0
+}
+
+HAYSTACK="$(printf '%s %s %s %s' "$DESCRIPTION" "$SCOPE" "$RISK" "$EXPECTED_OUTPUT" | tr '[:upper:]' '[:lower:]')"
 GUARD_HIT=false
 while IFS= read -r kw; do
   [[ -z "$kw" ]] && continue
   kw_lc="$(echo "$kw" | tr '[:upper:]' '[:lower:]')"
-  if [[ "$HAYSTACK" == *"$kw_lc"* ]]; then
+  # Word-boundary match so "prod" does not fire inside "reproduce" and "iam"
+  # does not fire inside "williams", while multi-word phrases still match.
+  kw_re="$(printf '%s' "$kw_lc" | sed -e 's/\\/\\\\/g' -e 's/[]^$*+?(){}|.[]/\\&/g')"
+  if [[ "$HAYSTACK" =~ (^|[^a-z0-9])${kw_re}($|[^a-z0-9]) ]]; then
     GUARD_HIT=true
     break
   fi
@@ -87,24 +126,19 @@ done < <(echo "$EFFECTIVE_CONFIG" | jq -r '.high_stakes_keywords[]')
 
 if [[ "$GUARD_HIT" == true ]]; then
   MODEL="$(resolve_model advanced)"
-  jq -n --arg model "$MODEL" '{routed: true, tier: "advanced", confidence: 1.0, model: $model, reason: "keyword-guard"}'
+  jq -nc --arg model "$MODEL" '{routed: true, tier: "advanced", confidence: 1.0, model: $model, reason: "keyword-guard"}'
   exit 0
 fi
 
 API_KEY_ENV="$(cfg '.typesafe.api_key_env')"
+# api_key_env can come from a project-local override; anything that is not a
+# plain shell identifier must never reach bash's indirect expansion.
+[[ "$API_KEY_ENV" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fallback_standard "api-unavailable"
 API_KEY="${!API_KEY_ENV:-}"
 ENDPOINT="$(cfg '.typesafe.endpoint')"
 JEV_MODEL="$(cfg '.typesafe.model')"
 CONF_THRESHOLD="$(cfg '.confidence_threshold')"
 HS_THRESHOLD="$(cfg '.high_stakes_probability_threshold')"
-
-fallback_standard() {
-  local reason="$1"
-  local model
-  model="$(resolve_model standard)"
-  jq -n --arg model "$model" --arg reason "$reason" '{routed: true, tier: "standard", confidence: 0, model: $model, reason: $reason}'
-  exit 0
-}
 
 [[ -z "$API_KEY" ]] && fallback_standard "api-unavailable"
 
@@ -155,12 +189,18 @@ RESPONSE="$(curl -sS -X POST "$ENDPOINT" \
 echo "$RESPONSE" | jq -e '.answers.tier.choice' >/dev/null 2>&1 || fallback_standard "api-unavailable"
 
 TIER="$(echo "$RESPONSE" | jq -r '.answers.tier.choice')"
-CONFIDENCE="$(echo "$RESPONSE" | jq -r '.answers.tier.confidence // 0')"
-HS_PROB="$(echo "$RESPONSE" | jq -r '.answers.high_stakes.noul // 0')"
+case "$TIER" in
+  lightweight|standard|advanced) ;;
+  *) fallback_standard "api-unavailable" ;;
+esac
+
+# Non-numeric probabilities degrade to 0 rather than crashing --argjson.
+CONFIDENCE="$(echo "$RESPONSE" | jq -r '(.answers.tier.confidence // 0) | if type == "number" then . else 0 end')"
+HS_PROB="$(echo "$RESPONSE" | jq -r '(.answers.high_stakes.noul // 0) | if type == "number" then . else 0 end')"
 
 if awk -v p="$HS_PROB" -v t="$HS_THRESHOLD" 'BEGIN{exit !(p>=t)}'; then
   MODEL="$(resolve_model advanced)"
-  jq -n --arg model "$MODEL" --argjson confidence "$CONFIDENCE" '{routed: true, tier: "advanced", confidence: $confidence, model: $model, reason: "high-stakes"}'
+  jq -nc --arg model "$MODEL" --argjson confidence "$CONFIDENCE" '{routed: true, tier: "advanced", confidence: $confidence, model: $model, reason: "high-stakes"}'
   exit 0
 fi
 
@@ -169,4 +209,4 @@ if awk -v c="$CONFIDENCE" -v t="$CONF_THRESHOLD" 'BEGIN{exit !(c<t)}'; then
 fi
 
 MODEL="$(resolve_model "$TIER")"
-jq -n --arg model "$MODEL" --arg tier "$TIER" --argjson confidence "$CONFIDENCE" '{routed: true, tier: $tier, confidence: $confidence, model: $model, reason: "jev"}'
+jq -nc --arg model "$MODEL" --arg tier "$TIER" --argjson confidence "$CONFIDENCE" '{routed: true, tier: $tier, confidence: $confidence, model: $model, reason: "jev"}'
