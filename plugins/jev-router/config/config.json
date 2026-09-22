@@ -1,0 +1,43 @@
+{
+  "enabled": false,
+  "typesafe": {
+    "endpoint": "https://api.typone.ai/v1/systemone",
+    "model": "jev-latest",
+    "api_key_env": "TYPESAFE_API_KEY"
+  },
+  "confidence_threshold": 0.7,
+  "high_stakes_probability_threshold": 0.5,
+  "high_stakes_keywords": [
+    "prod",
+    "production",
+    "drop table",
+    "delete from",
+    "rm -rf",
+    "force-push",
+    "--force",
+    "force push",
+    "secret",
+    "credential",
+    "credentials",
+    "migration",
+    "terraform apply",
+    "iam",
+    "rbac",
+    "deploy",
+    "deployment",
+    "payment",
+    "pii"
+  ],
+  "agents": {
+    "claude-code": {
+      "lightweight": "claude-haiku-4-5-20251001",
+      "standard": "claude-sonnet-5",
+      "advanced": "claude-opus-5"
+    },
+    "codex": {
+      "lightweight": "gpt-5.6-luna",
+      "standard": "gpt-5.6-terra",
+      "advanced": "gpt-5.6-sol"
+    }
+  }
+}
