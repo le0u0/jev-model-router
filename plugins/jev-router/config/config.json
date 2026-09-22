@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "typesafe": {
     "endpoint": "https://api.typesafe.ai/v1/systemone",
     "model": "jev-latest",

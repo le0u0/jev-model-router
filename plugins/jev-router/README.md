@@ -1,5 +1,7 @@
 # jev-router
 
+Version: `0.1.0`.
+
 Jev-powered model routing for delegated subagent tasks, shared by Claude
 Code and Codex CLI.
 
@@ -55,8 +57,8 @@ the four above — is silently ignored.
 ## Turning it on/off
 
 Run the `jev-router-on` or `jev-router-off` skill (or `/jev-router-on`,
-`/jev-router-off`), from either Claude Code or Codex CLI — both read the
-same `config/config.json`.
+`/jev-router-off`) in the host you want to change. Claude Code and Codex CLI
+read their own installed copies of `config/config.json`.
 
 ## Testing before enabling
 

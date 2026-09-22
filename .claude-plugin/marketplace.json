@@ -7,6 +7,7 @@
   "plugins": [
     {
       "name": "jev-router",
+      "version": "0.1.0",
       "source": "./plugins/jev-router",
       "description": "Classifies a delegated task and picks the right-sized model for the agent dispatching it, using TypeSafe's Jev model."
     }
