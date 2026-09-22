@@ -1,18 +1,18 @@
 # jev-router test report
 
-Generated: 2026-09-22T05:03:05Z
+Generated: 2026-09-22T05:25:50Z
 
 | id | agent | expected tier | got tier | confidence | reason | model | reason match | match |
 |---|---|---|---|---|---|---|---|---|
 | lw-1 | claude-code | lightweight | lightweight | 1.0 | jev | claude-haiku-4-5-20251001 | n/a | yes |
 | lw-2 | codex | lightweight | lightweight | 1.0 | jev | gpt-5.6-luna | n/a | yes |
 | lw-3 | claude-code | lightweight | lightweight | 1.0 | jev | claude-haiku-4-5-20251001 | n/a | yes |
-| std-1 | claude-code | standard | standard | 0.81 | jev | claude-sonnet-5 | n/a | yes |
+| std-1 | claude-code | standard | standard | 0.82 | jev | claude-sonnet-5 | n/a | yes |
 | std-2 | codex | standard | standard | 0.98 | jev | gpt-5.6-terra | n/a | yes |
-| std-3 | claude-code | standard | standard | 0.98 | jev | claude-sonnet-5 | n/a | yes |
-| adv-1 | claude-code | advanced | advanced | 0.98 | jev | claude-opus-5 | n/a | yes |
-| adv-2 | codex | advanced | advanced | 0.88 | high-stakes | gpt-5.6-sol | n/a | yes |
-| adv-3 | claude-code | advanced | advanced | 0.89 | high-stakes | claude-opus-5 | n/a | yes |
+| std-3 | claude-code | standard | standard | 0.99 | jev | claude-sonnet-5 | n/a | yes |
+| adv-1 | claude-code | advanced | advanced | 0.96 | jev | claude-opus-5 | n/a | yes |
+| adv-2 | codex | advanced | advanced | 0.89 | high-stakes | gpt-5.6-sol | n/a | yes |
+| adv-3 | claude-code | advanced | advanced | 0.87 | high-stakes | claude-opus-5 | n/a | yes |
 | edge-destructive | claude-code | advanced | advanced | 1.0 | keyword-guard | claude-opus-5 | yes | yes |
 | edge-ambiguous | codex | standard | standard | 0 | low-confidence | gpt-5.6-terra | yes | yes |
 | edge-deploy | claude-code | advanced | advanced | 1.0 | keyword-guard | claude-opus-5 | yes | yes |
